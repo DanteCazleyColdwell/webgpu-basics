@@ -7,21 +7,26 @@
     <body>
         <canvas width="512" height="512"></canvas>  <!-- Canvas to render WebGPU results to. -->
         <script type="module">
-            const GRID_SIZE = 32;                               // Width and height of the Grid of squares to be rendered.
-            const UPDATE_INTERVAL = 200;                        // Frequency in milliseconds that the render should update.
-            const WORKGROUP_SIZE = 8;                           // Width and height of the workgroup the game logic Compute Shader will run with.
-            const canvas = document.querySelector("canvas");    // Create a Canvas (The element WebGPU will be drawing inside of).
-
+            // #region Settings
+            const GRID_SIZE = 32            // Width and height of the Grid of squares to be rendered.
+            const UPDATE_INTERVAL = 200;    // Frequency in milliseconds that the render should update.
+            const WORKGROUP_SIZE = 8;       // Width and height of the workgroup the game logic Compute Shader will run with.
+            // #endregion
+            
+            // #region WebGPU Compatibility Checking
             if (!navigator.gpu) {                           // If WebGPU is not supported in the current browser...
                 throw new Error("WebGPU not supported.");   // Throw an error to stop execution.
             }
-
+            
             const adapter = await navigator.gpu.requestAdapter();   // Create a WebGPU Adapter (Reference to a GPU hardware connected to the computer).
-
+            
             if (!adapter) {                                             // If no valid GPU was found (e.g. A laptop with no dedicated GPU)...
-                throw new Error("No appropriate GPUAdapter found.");    // Throw an error to stop execution.
+                throw new Error("No appropriate GPU Adapter found.");   // Throw an error to stop execution.
             }
-
+            // #endregion
+            
+            // #region Canvas Setup
+            const canvas = document.querySelector("canvas");                // Get the Canvas from the page (The element WebGPU will be drawing inside of).
             const device = await adapter.requestDevice();                   // Create a WebGPU Device (Not sure why this is separate to the Adapter as they're described very similarly).
             const context = canvas.getContext("webgpu");                    // Get a reference to the WebGPU context from the Canvas to configure.
             const canvasFormat = navigator.gpu.getPreferredCanvasFormat();  // Get the GPU's preferred Texture format.
@@ -30,7 +35,9 @@
                 device: device,         // WebGPU device to use.
                 format: canvasFormat,   // Texture format to use.
             });
+            // #endregion
 
+            // #region Cell Vertex Buffer Setup
             const vertices = new Float32Array([ // Create an array of 32-bit floats to store vertex data in.
                 // X,    Y
                 // Triangle 1
@@ -52,7 +59,7 @@
             });
 
             device.queue.writeBuffer(vertexBuffer, 0, vertices);    // Copy the Vertex Array (vertices) to the Vertex Buffer (vertexBuffer) with no offset (0).
-
+            
             const vertexBufferLayout = {    // Create a WebGPU Vertex Buffer Layout (Describes the structure of a Vertex Buffer).
                 arrayStride: 8,             // The number of bytes each Vertex in the Vertex Buffer uses (These Vertices are 2D with no extra data so contains 2 floats, 1 byte is 8 bits so a 32-bit float is 4 bytes, 2 floats x 4 bytes = 8 bytes).
                 attributes: [{              // Array of attributes the Vertices contain (e.g. position, color, normal, etc.). Only position is being used currently.
@@ -61,7 +68,9 @@
                     shaderLocation: 0,      // Unique ID for which Vertex Shader variable this attribute corresponds to (0 to 15).
                 }],
             };
-
+            // #endregion
+            
+            // #region General Shader Pipeline Setup
             const bindGroupLayout = device.createBindGroupLayout({                                          // Create a WebGPU Bind Group Layout (Describes the structure of a Bind Group).
                 label: "Cell Bind Group Layout",                                                            // Name for this WebGPU object. Used in error messages etc.
                 entries: [{                                                                                 // Array of info for what data to connect to which bind IDs, as well as when and how.
@@ -83,10 +92,12 @@
                 label: "Cell Pipeline Layout",                      // Name for this WebGPU object. Used in error messages etc.
                 bindGroupLayouts: [bindGroupLayout],                // Array of Bind Group Layouts for the Pipeline to use (In this case, just bindGroupLayout), order dictates Bind Group index (In this case bindGroupLayout is @group(0)).
             });
+            // #endregion
 
-            const cellShaderModule = device.createShaderModule({    // Create a WebGPU Shader Module (WebGL Shaders are written in WebGPU Shader Language (WGSL)).
-                label: "Cell Shader",                               // Name for this WebGPU object. Used in error messages etc.
-                code:                                               // WGSL Shader code.
+            // #region Cell Render Pipeline Setup
+            const cellShaderModule = device.createShaderModule({                                            // Create a WebGPU Shader Module (WebGL Shaders are written in WebGPU Shader Language (WGSL)).
+                label: "Cell Shader",                                                                       // Name for this WebGPU object. Used in error messages etc.
+                code:                                                                                       // WGSL Shader code.
                 `
                 // @location(x)         = which Vertex Buffer Layout attribute the following variable corresponds to (shaderLocation, in this case 0).
                 // pos                  = name of the variable, can be anything.
@@ -167,7 +178,9 @@
                     }]
                 }
             });
+            // #endregion
 
+            // #region Game Logic Compute Pipeline Setup
             const simulationShaderModule = device.createShaderModule({
                 label: "Game of Life Simulation Shader",
                 code:
@@ -229,7 +242,9 @@
                     entryPoint: "computeMain",                          // Name of the Compute Shader function within the Module (Modules can contain multiple Compute (@compute) functions).
                 }
             });
+            // #endregion
 
+            // #region Grid Dimensions Uniform Buffer Setup
             const uniformArray = new Float32Array([GRID_SIZE, GRID_SIZE]);  // Create an array of 32-bit floats to store Uniforms.
 
             const uniformBuffer = device.createBuffer({                 // Create a WebGPU Buffer for the Uniforms (Block of memory specifically formatted to hold GPU data). The below settings cannot be changed after the Buffer is created.
@@ -239,7 +254,9 @@
             });
 
             device.queue.writeBuffer(uniformBuffer, 0, uniformArray)    // Copy the Uniform Array (uniformArray) to the Uniform Buffer (uniformBuffer) with no offset (0).
+            // #endregion
 
+            // #region Cell State Buffer Setup
             const cellStateArray = new Uint32Array(GRID_SIZE * GRID_SIZE);  // Create an array of unsigned 32-bit integers to store Cell States. Using Uint32s instead of bools as they work much faster on a GPU.
             // ^ Instead of using an entire unsigned 32-bit integer per boolean Cell State, it would be even faster if 32 Cell States were packed into each integer using bitmasking.
 
@@ -261,7 +278,9 @@
             }
 
             device.queue.writeBuffer(cellStateStorage[0], 0, cellStateArray);   // Copy the Cell State Array (cellStateArray) to the 1st Cell State Buffer (cellStateStorage[0]) with no offset (0).
+            // #endregion
 
+            // #region Shader Bind Group Setup
             const bindGroups = [                                    // Create an array of 2 WebGPU Bind Groups to cycle between render settings.
                 device.createBindGroup({                            // Create a WebGPU Bind Group (A collection of data such as Buffers and Textures for Shaders to use). The below settings cannot be changed after the Buffer is created, but data the entries points to (resource) can have their value changed.
                     label: "Cell Renderer Bind Group A",            // Name for this WebGPU object. Used in error messages etc.
@@ -292,7 +311,9 @@
                     }],
                 }),
             ]
+            // #endregion
 
+            // #region Main Loop Setup & Kickoff
             let step = 0;   // Number of updates that have happened.
 
             function updateGrid() {                                             // Create the main update loop function.
@@ -327,8 +348,9 @@
                 const commandBuffer = encoder.finish();                         // Create a WEBGPU Command Buffer (Contains all prior encoded instructions in a GPU compatible format).
                 device.queue.submit([commandBuffer]);                           // Send the Command Buffer to the GPU to run.
             }
-
+            
             setInterval(updateGrid, UPDATE_INTERVAL);   // Start running the update loop on a set interval.
+            // #endregion
         </script>
     </body>
 </html>
